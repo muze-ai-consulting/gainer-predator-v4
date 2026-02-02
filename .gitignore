@@ -1,0 +1,21 @@
+# Environment variables
+.env
+
+# Telethon session files
+*.session
+*.session-journal
+anon.session
+
+# Local state and logs
+daily_actions.log
+processed_signals.json
+__pycache__/
+*.log
+
+# OS files
+.DS_Store
+
+# Virtual environment
+.venv/
+venv/
+env/

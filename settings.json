@@ -1,0 +1,6 @@
+{
+    "risk_percent": 0.5,
+    "default_leverage": 10,
+    "margin_type": "ISOLATED",
+    "owner_chat_id": 1161247886
+}

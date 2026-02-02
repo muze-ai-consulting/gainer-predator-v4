@@ -1,0 +1,15 @@
+{
+    "name": "skill-antigravity",
+    "version": "1.0.0",
+    "description": "Core knowledge for managing Antigravity Skills.",
+    "author": "Muze AI",
+    "license": "MIT",
+    "category": "productivity",
+    "tags": [
+        "antigravity",
+        "skills",
+        "automation",
+        "meta"
+    ],
+    "homepage": "https://github.com/cocacha12/agent-skills/tree/main/skills/skill-antigravity"
+}
