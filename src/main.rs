@@ -1,4 +1,4 @@
-use trz_bot::config::{Config, BotMode};
+use trz_bot::config::{Config, BotMode, TradingMode};
 use trz_bot::binance::BinanceClient;
 use trz_bot::scanner;
 use trz_bot::runtime_config::RuntimeConfig;
@@ -16,6 +16,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("🐆 Starting Gainer Predator Bot v0.3.0 (Rust HFT Edition)...");
 
     let config = Config::load();
+    let is_paper = config.trading_mode == TradingMode::Paper;
+
+    if is_paper {
+        info!("📝 PAPER TRADING MODE — Real data, simulated execution");
+    } else {
+        info!("💰 LIVE TRADING MODE — Real orders will be placed!");
+    }
+
     let (order_tx, order_rx) = tokio::sync::mpsc::unbounded_channel::<(String, String, std::time::Instant)>();
 
     // Event bus for SSE streaming
@@ -23,12 +31,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut binance_client_raw = BinanceClient::new(&config, order_tx, events_tx.clone());
     binance_client_raw.init_precision_cache().await?;
-    binance_client_raw.preheat_active_symbols().await;
-    binance_client_raw.spawn_preheat_loop();
-    binance_client_raw.fetch_initial_balance().await?;
-    binance_client_raw.spawn_user_data_stream();
+
+    if is_paper {
+        // Paper mode: skip preheat (no real leverage/margin API calls needed)
+        // Set a simulated starting balance
+        let initial_balance: f64 = std::env::var("PAPER_BALANCE")
+            .ok().and_then(|s| s.parse().ok()).unwrap_or(10_000.0);
+        *binance_client_raw.balance.write().await = initial_balance;
+        info!("📝 Paper balance: ${:.2}", initial_balance);
+    } else {
+        binance_client_raw.preheat_active_symbols().await;
+        binance_client_raw.spawn_preheat_loop();
+        binance_client_raw.fetch_initial_balance().await?;
+        binance_client_raw.spawn_user_data_stream();
+    }
+
     binance_client_raw.spawn_price_sync();
-    binance_client_raw.spawn_order_ws(order_rx, config.binance_api_key.clone());
+
+    if !is_paper {
+        binance_client_raw.spawn_order_ws(order_rx, config.binance_api_key.clone());
+    }
+
     binance_client_raw.load_state();
     let binance_client = Arc::new(binance_client_raw);
 
@@ -48,7 +71,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match config.mode {
         BotMode::Scanner => {
-            info!("🔍 Mode: SCANNER (Gainer Predator V4)");
+            let mode_label = if is_paper { "SCANNER + PAPER" } else { "SCANNER + LIVE" };
+            info!("🔍 Mode: {} (Gainer Predator V4)", mode_label);
 
             let rc = runtime_config.read().await;
             info!("📊 Config: RVol >= {:.1}x, Jump {:.1}%-{:.1}%, Max {} pos, Leverage {}x",

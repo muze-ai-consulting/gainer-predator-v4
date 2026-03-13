@@ -45,12 +45,19 @@ pub struct Config {
 
     // Mode selection
     pub mode: BotMode,
+    pub trading_mode: TradingMode,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BotMode {
     Scanner,  // Self-scanning Gainer Predator
     Telegram, // Legacy: listen to Telegram signals
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TradingMode {
+    Live,   // Real orders on Binance
+    Paper,  // Simulated fills, real market data
 }
 
 impl Config {
@@ -60,6 +67,11 @@ impl Config {
         let mode = match env::var("BOT_MODE").unwrap_or_else(|_| "scanner".to_string()).to_lowercase().as_str() {
             "telegram" => BotMode::Telegram,
             _ => BotMode::Scanner,
+        };
+
+        let trading_mode = match env::var("TRADING_MODE").unwrap_or_else(|_| "paper".to_string()).to_lowercase().as_str() {
+            "live" => TradingMode::Live,
+            _ => TradingMode::Paper, // Default to paper for safety
         };
 
         Self {
@@ -104,6 +116,7 @@ impl Config {
             preheat_refresh_hours: env::var("PREHEAT_REFRESH_HOURS").unwrap_or_else(|_| "12".to_string()).parse().unwrap_or(12),
 
             mode,
+            trading_mode,
         }
     }
 }

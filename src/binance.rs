@@ -58,6 +58,7 @@ pub struct BinanceClient {
     pub margin_type: String,
     pub max_hold_secs: u64,
     pub events_tx: EventSender,
+    pub paper_mode: bool,
 }
 
 impl BinanceClient {
@@ -116,6 +117,7 @@ impl BinanceClient {
             margin_type: config.margin_type.clone(),
             max_hold_secs: config.max_hold_secs,
             events_tx,
+            paper_mode: config.trading_mode == crate::config::TradingMode::Paper,
         }
     }
 
@@ -631,52 +633,58 @@ impl BinanceClient {
 
         // 5. Leverage Optimization (Cache check)
         let target_leverage = signal.leverage.unwrap_or(self.default_leverage);
-        let cached_lev = self.leverage_cache.get(&signal.symbol).map(|v| *v.value());
-        
-        if cached_lev != Some(target_leverage) {
-            info!("⚙️ Adjusting leverage for {} to {}x (Sync for safety)", signal.symbol, target_leverage);
-            let lev_query = format!("symbol={}&leverage={}&timestamp={}", signal.symbol, target_leverage, timestamp);
-            let lev_sig = self.generate_signature(&lev_query);
-            let lev_url = format!("{}/fapi/v1/leverage?{}&signature={}", self.base_url, lev_query, lev_sig);
-            
-            match self.client.post(&lev_url).send().await {
-                Ok(res) if res.status().is_success() => {
-                    self.leverage_cache.insert(signal.symbol.clone(), target_leverage);
-                    info!("✅ Leverage for {} adjusted to {}x", signal.symbol, target_leverage);
-                }
-                Ok(res) => error!("❌ Failed to adjust leverage for {}: {}", signal.symbol, res.status()),
-                Err(e) => error!("❌ Network error adjusting leverage for {}: {}", signal.symbol, e),
-            }
-        }
 
-        // 5.1 Margin Type Sync (Sync for safety)
-        let target_margin = self.margin_type.as_str();
-        let cached_margin = self.margin_cache.get(&signal.symbol).map(|v| v.value().clone());
-        
-        if cached_margin != Some(target_margin.to_string()) {
-            info!("⚙️ Changing margin type for {} to {} (Sync for safety)", signal.symbol, target_margin);
-            let margin_query = format!("symbol={}&marginType={}&timestamp={}", signal.symbol, target_margin, timestamp);
-            let margin_sig = self.generate_signature(&margin_query);
-            let margin_url = format!("{}/fapi/v1/marginType?{}&signature={}", self.base_url, margin_query, margin_sig);
-            
-            match self.client.post(&margin_url).send().await {
-                Ok(res) if res.status().is_success() => {
-                    self.margin_cache.insert(signal.symbol.clone(), target_margin.to_string());
-                    info!("✅ Margin type for {} set to {}", signal.symbol, target_margin);
-                }
-                Ok(res) => {
-                    // Binance returns 400 if it's already set to the same type, which is fine
-                    debug!("⚠️ Margin type info for {}: {}", signal.symbol, res.status());
-                    self.margin_cache.insert(signal.symbol.clone(), target_margin.to_string());
-                }
-                Err(e) => error!("❌ Network error setting margin type for {}: {}", signal.symbol, e),
-            }
-        }
+        if !self.paper_mode {
+            let cached_lev = self.leverage_cache.get(&signal.symbol).map(|v| *v.value());
 
-        // 5.2 Propagation Delay (Binance matching engine sync)
-        if cached_lev != Some(target_leverage) || cached_margin != Some(target_margin.to_string()) {
-            debug!("⏳ Waiting 20ms for account changes to propagate on {}...", signal.symbol);
-            tokio::time::sleep(Duration::from_millis(20)).await;
+            if cached_lev != Some(target_leverage) {
+                info!("⚙️ Adjusting leverage for {} to {}x (Sync for safety)", signal.symbol, target_leverage);
+                let lev_query = format!("symbol={}&leverage={}&timestamp={}", signal.symbol, target_leverage, timestamp);
+                let lev_sig = self.generate_signature(&lev_query);
+                let lev_url = format!("{}/fapi/v1/leverage?{}&signature={}", self.base_url, lev_query, lev_sig);
+
+                match self.client.post(&lev_url).send().await {
+                    Ok(res) if res.status().is_success() => {
+                        self.leverage_cache.insert(signal.symbol.clone(), target_leverage);
+                        info!("✅ Leverage for {} adjusted to {}x", signal.symbol, target_leverage);
+                    }
+                    Ok(res) => error!("❌ Failed to adjust leverage for {}: {}", signal.symbol, res.status()),
+                    Err(e) => error!("❌ Network error adjusting leverage for {}: {}", signal.symbol, e),
+                }
+            }
+
+            // 5.1 Margin Type Sync (Sync for safety)
+            let target_margin = self.margin_type.as_str();
+            let cached_margin = self.margin_cache.get(&signal.symbol).map(|v| v.value().clone());
+
+            if cached_margin != Some(target_margin.to_string()) {
+                info!("⚙️ Changing margin type for {} to {} (Sync for safety)", signal.symbol, target_margin);
+                let margin_query = format!("symbol={}&marginType={}&timestamp={}", signal.symbol, target_margin, timestamp);
+                let margin_sig = self.generate_signature(&margin_query);
+                let margin_url = format!("{}/fapi/v1/marginType?{}&signature={}", self.base_url, margin_query, margin_sig);
+
+                match self.client.post(&margin_url).send().await {
+                    Ok(res) if res.status().is_success() => {
+                        self.margin_cache.insert(signal.symbol.clone(), target_margin.to_string());
+                        info!("✅ Margin type for {} set to {}", signal.symbol, target_margin);
+                    }
+                    Ok(res) => {
+                        debug!("⚠️ Margin type info for {}: {}", signal.symbol, res.status());
+                        self.margin_cache.insert(signal.symbol.clone(), target_margin.to_string());
+                    }
+                    Err(e) => error!("❌ Network error setting margin type for {}: {}", signal.symbol, e),
+                }
+            }
+
+            // 5.2 Propagation Delay (Binance matching engine sync)
+            if cached_lev != Some(target_leverage) || cached_margin != Some(target_margin.to_string()) {
+                debug!("⏳ Waiting 20ms for account changes to propagate on {}...", signal.symbol);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        } else {
+            // Paper mode: just cache the leverage locally
+            self.leverage_cache.insert(signal.symbol.clone(), target_leverage);
+            self.margin_cache.insert(signal.symbol.clone(), self.margin_type.clone());
         }
 
         let usd_to_risk = available_balance * self.risk_percent;
@@ -719,46 +727,52 @@ impl BinanceClient {
         let rounded_limit = (limit_price / tick).round() * tick;
         let limit_price_str = format!("{:.*}", info.price_precision, rounded_limit);
 
-        let api_key = &self.api_key;
-        let ts_str = timestamp.to_string();
+        if self.paper_mode {
+            // PAPER MODE: Simulate instant fill at market price
+            info!("📝 [PAPER] Simulated fill for {} {} @ ${} qty={}", signal.symbol, side_str, current_price, quantity_str);
+        } else {
+            // LIVE MODE: Send real order via WebSocket
+            let api_key = &self.api_key;
+            let ts_str = timestamp.to_string();
 
-        let params_raw = [
-            ("apiKey", api_key.as_str()),
-            ("price", limit_price_str.as_str()),
-            ("quantity", quantity_str.as_str()),
-            ("side", side_str),
-            ("symbol", signal.symbol.as_str()),
-            ("timeInForce", "IOC"),
-            ("timestamp", ts_str.as_str()),
-            ("type", "LIMIT"),
-        ];
-        
-        let query_string = params_raw.iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect::<Vec<_>>()
-            .join("&");
+            let params_raw = [
+                ("apiKey", api_key.as_str()),
+                ("price", limit_price_str.as_str()),
+                ("quantity", quantity_str.as_str()),
+                ("side", side_str),
+                ("symbol", signal.symbol.as_str()),
+                ("timeInForce", "IOC"),
+                ("timestamp", ts_str.as_str()),
+                ("type", "LIMIT"),
+            ];
 
-        let signature = self.generate_signature(&query_string);
-        
-        let order_id = format!("order_{}_{}_{}", signal.symbol, target_leverage, timestamp);
-        let raw_payload = format!(
-            r#"{{"id":"{}","method":"order.place","params":{{"apiKey":"{}","symbol":"{}","side":"{}","type":"LIMIT","timeInForce":"IOC","quantity":"{}","price":"{}","timestamp":{},"signature":"{}"}}}}"#,
-            order_id, api_key, signal.symbol, side_str, quantity_str, limit_price_str, timestamp, signature
-        );
+            let query_string = params_raw.iter()
+                .map(|(k, v)| format!("{}={}", k, v))
+                .collect::<Vec<_>>()
+                .join("&");
 
-        // 7. Fire Order via WS
-        if let Err(e) = self.order_tx.send((order_id, raw_payload, t0)) {
-            self.active_positions.remove(&signal.symbol);
-            return Err(format!("Failed to send order to WS task: {}", e).into());
+            let signature = self.generate_signature(&query_string);
+
+            let order_id = format!("order_{}_{}_{}", signal.symbol, target_leverage, timestamp);
+            let raw_payload = format!(
+                r#"{{"id":"{}","method":"order.place","params":{{"apiKey":"{}","symbol":"{}","side":"{}","type":"LIMIT","timeInForce":"IOC","quantity":"{}","price":"{}","timestamp":{},"signature":"{}"}}}}"#,
+                order_id, api_key, signal.symbol, side_str, quantity_str, limit_price_str, timestamp, signature
+            );
+
+            // 7. Fire Order via WS
+            if let Err(e) = self.order_tx.send((order_id, raw_payload, t0)) {
+                self.active_positions.remove(&signal.symbol);
+                return Err(format!("Failed to send order to WS task: {}", e).into());
+            }
+
+            info!("🛡️ Slippage Guard: Sent LIMIT IOC for {} @ ${} (Entry: ${})", signal.symbol, limit_price_str, current_price);
+
+            // Zero-Latency Notification: Dispatched to background task
+            self.send_notification(format!(
+                "🎯 *SIGNAL IDENTIFIED & ORDER SENT*\n\n*Symbol:* `{}`\n*Side:* `{}`\n*Qty:* `{}`\n*Lev:* `{}x`\n*Latency:* `{:?}` (T0-T1)",
+                signal.symbol, side_str, quantity_str, target_leverage, t0.elapsed()
+            ));
         }
-
-        info!("🛡️ Slippage Guard: Sent LIMIT IOC for {} @ ${} (Entry: ${})", signal.symbol, limit_price_str, current_price);
-        
-        // Zero-Latency Notification: Dispatched to background task
-        self.send_notification(format!(
-            "🎯 *SIGNAL IDENTIFIED & ORDER SENT*\n\n*Symbol:* `{}`\n*Side:* `{}`\n*Qty:* `{}`\n*Lev:* `{}x`\n*Latency:* `{:?}` (T0-T1)",
-            signal.symbol, side_str, quantity_str, target_leverage, t0.elapsed()
-        ));
 
         self.save_state_async();
 
@@ -946,7 +960,14 @@ impl BinanceClient {
             received_at: std::time::Instant::now(),
         };
 
-        if let Err(e) = self.execute_market_order_with_retries(&close_signal, quantity_str.clone()).await {
+        let close_result = if self.paper_mode {
+            info!("📝 [PAPER] Simulated close for {} @ ${:.5} (reason: {})", symbol_name, exit_price, exit_reason);
+            Ok(())
+        } else {
+            self.execute_market_order_with_retries(&close_signal, quantity_str.clone()).await
+        };
+
+        if let Err(e) = close_result {
             error!("❌ Apex Detection Final Exit Failure for {}: {}", symbol_name, e);
             self.send_notification(format!("❌ *EXIT FAILURE*\n\n*Symbol:* `{}`\n*Error:* `{}`", symbol_name, e));
         } else {

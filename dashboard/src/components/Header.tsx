@@ -13,7 +13,7 @@ export function Header({ connected }: HeaderProps) {
           GAINER PREDATOR V4
         </h1>
         <span className="px-2 py-0.5 text-xs font-mono font-semibold rounded bg-[#ffcc00]/10 text-[#ffcc00] border border-[#ffcc00]/20">
-          TESTNET
+          PAPER
         </span>
       </div>
 
