@@ -19,3 +19,24 @@ __pycache__/
 .venv/
 venv/
 env/
+
+
+# Rust
+/target
+Cargo.lock
+
+# Dashboard
+dashboard/node_modules/
+dashboard/dist/
+
+# Sensitive files
+*.pem
+bot_state.json
+trades.jsonl
+project.tar.gz
+
+# Claude
+.claude/
+
+# Docker local test
+test_docker_local.sh

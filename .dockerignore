@@ -1,0 +1,12 @@
+target/
+.git/
+.venv/
+node_modules/
+*.session
+*.session-journal
+bot_state.json
+processed_signals.json
+daily_actions.log
+*.pem
+deploy.sh
+test_docker_local.sh
