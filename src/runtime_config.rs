@@ -21,6 +21,8 @@ pub struct RuntimeConfig {
     pub apex_activation_pct: f64,
     pub apex_tight_activation_pct: f64,
     pub apex_tight_retracement: f64,
+    #[serde(default)]
+    pub experiment_id: Option<u64>,
 }
 
 pub type SharedRuntimeConfig = Arc<RwLock<RuntimeConfig>>;
@@ -44,6 +46,7 @@ impl RuntimeConfig {
             apex_activation_pct: parse_env("APEX_ACTIVATION_PCT", 0.0) / 100.0,
             apex_tight_activation_pct: parse_env("APEX_TIGHT_ACTIVATION_PCT", 3.0) / 100.0,
             apex_tight_retracement: parse_env("APEX_TIGHT_RETRACEMENT", 0.5) / 100.0,
+            experiment_id: None,
         }
     }
 
@@ -63,6 +66,7 @@ impl RuntimeConfig {
         if let Some(arr) = params["good_hours"].as_array() {
             self.good_hours = arr.iter().filter_map(|h| h.as_u64().map(|v| v as u32)).collect();
         }
+        if let Some(v) = params["experiment_id"].as_u64() { self.experiment_id = Some(v); }
     }
 
     pub fn into_shared(self) -> SharedRuntimeConfig {

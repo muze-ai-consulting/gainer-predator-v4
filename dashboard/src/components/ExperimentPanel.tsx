@@ -14,9 +14,6 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  Scatter,
-  ScatterChart,
-  ZAxis,
 } from "recharts";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -58,7 +55,7 @@ function ExperimentTable({ experiments }: { experiments: Experiment[] }) {
         header: "ID",
         cell: ({ getValue }) => (
           <span className="text-[#3b82f6] text-xs font-semibold">
-            {getValue<string>().slice(0, 8)}
+            {String(getValue() ?? "").slice(0, 8) || "—"}
           </span>
         ),
       },
@@ -67,7 +64,7 @@ function ExperimentTable({ experiments }: { experiments: Experiment[] }) {
         header: "Description",
         cell: ({ getValue }) => (
           <span className="text-[#fafafa] text-sm max-w-[200px] truncate block">
-            {getValue<string>()}
+            {String(getValue() ?? "—")}
           </span>
         ),
       },
@@ -75,7 +72,7 @@ function ExperimentTable({ experiments }: { experiments: Experiment[] }) {
         accessorKey: "status",
         header: "Status",
         cell: ({ getValue }) => {
-          const status = getValue<string>();
+          const status = String(getValue() ?? "");
           return (
             <span
               className={cn(
@@ -85,7 +82,7 @@ function ExperimentTable({ experiments }: { experiments: Experiment[] }) {
                   : "text-[#ff4444] bg-[#ff4444]/10"
               )}
             >
-              {status}
+              {status || "—"}
             </span>
           );
         },
@@ -94,7 +91,7 @@ function ExperimentTable({ experiments }: { experiments: Experiment[] }) {
         accessorKey: "score",
         header: "Score",
         cell: ({ getValue }) => {
-          const score = getValue<number>();
+          const score = Number(getValue()) || 0;
           return (
             <span
               className={cn(
@@ -116,7 +113,7 @@ function ExperimentTable({ experiments }: { experiments: Experiment[] }) {
         header: "Timestamp",
         cell: ({ getValue }) => (
           <span className="text-[#888] text-xs">
-            {formatTimestamp(getValue<string>())}
+            {formatTimestamp(String(getValue() ?? ""))}
           </span>
         ),
       },
@@ -240,8 +237,8 @@ function ScoreHistoryChart({ experiments }: { experiments: Experiment[] }) {
                 fontSize: 12,
                 color: "#fafafa",
               }}
-              formatter={(value: number, _name: string, props: { payload: ScorePoint }) => [
-                `${value.toFixed(3)} (${props.payload.status})`,
+              formatter={(value) => [
+                `${Number(value ?? 0).toFixed(3)}`,
                 "Score",
               ]}
               labelStyle={{ color: "#888" }}
@@ -251,13 +248,13 @@ function ScoreHistoryChart({ experiments }: { experiments: Experiment[] }) {
               dataKey="score"
               stroke="#3b82f6"
               strokeWidth={2}
-              dot={(props: {
-                cx: number;
-                cy: number;
-                payload: ScorePoint;
-                index: number;
-              }) => {
-                const { cx, cy, payload, index } = props;
+              dot={(props: any) => {
+                const { cx, cy, payload, index } = props as {
+                  cx: number;
+                  cy: number;
+                  payload: ScorePoint;
+                  index: number;
+                };
                 return (
                   <circle
                     key={index}

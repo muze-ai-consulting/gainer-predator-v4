@@ -789,7 +789,7 @@ impl BinanceClient {
     }
 
     /// Execute a market order with scanner metadata (rvol, jump) stored in position state
-    pub async fn execute_market_order_with_metadata(&self, signal: &Signal, rvol: f64, jump_pct: f64) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn execute_market_order_with_metadata(&self, signal: &Signal, rvol: f64, jump_pct: f64, experiment_id: Option<u64>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Store metadata that will be used by trade_logger when the position closes
         // We do this by inserting it after execute_market_order creates the position
         let result = self.execute_market_order(signal).await;
@@ -799,6 +799,7 @@ impl BinanceClient {
                 pos.value_mut()["rvol"] = serde_json::json!(rvol);
                 pos.value_mut()["jump_pct"] = serde_json::json!(jump_pct);
                 pos.value_mut()["entry_time"] = serde_json::json!(chrono::Utc::now().to_rfc3339());
+                pos.value_mut()["experiment_id"] = serde_json::json!(experiment_id);
             }
 
             let _ = self.events_tx.send(BotEvent {
@@ -993,9 +994,11 @@ impl BinanceClient {
 
             // Log completed trade
             let pos_data = self.active_positions.get(&signal.symbol);
-            let (rvol, jump) = pos_data.as_ref().map(|p| {
-                (p.value()["rvol"].as_f64().unwrap_or(0.0), p.value()["jump_pct"].as_f64().unwrap_or(0.0))
-            }).unwrap_or((0.0, 0.0));
+            let (rvol, jump, exp_id) = pos_data.as_ref().map(|p| {
+                (p.value()["rvol"].as_f64().unwrap_or(0.0),
+                 p.value()["jump_pct"].as_f64().unwrap_or(0.0),
+                 p.value()["experiment_id"].as_u64())
+            }).unwrap_or((0.0, 0.0, None));
 
             let hold_secs = entry_time.elapsed().as_secs();
             let fees = 0.08; // 0.08% round-trip
@@ -1014,7 +1017,7 @@ impl BinanceClient {
                 hold_time_secs: hold_secs,
                 leverage: lev_val as u32,
                 fees,
-                experiment_id: None,
+                experiment_id: exp_id,
             };
             trade_logger::append_trade(&trade);
 

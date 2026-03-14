@@ -44,6 +44,7 @@ pub fn spawn_scanner(binance: Arc<BinanceClient>, runtime_config: SharedRuntimeC
             let good_hours = cfg.good_hours.clone();
             let universe_size = cfg.universe_size;
             let scan_interval = cfg.scan_interval_secs;
+            let current_experiment_id = cfg.experiment_id;
             drop(cfg); // Release lock before sleeping
 
             tokio::time::sleep(Duration::from_secs(scan_interval)).await;
@@ -127,12 +128,13 @@ pub fn spawn_scanner(binance: Arc<BinanceClient>, runtime_config: SharedRuntimeC
                             timestamp: chrono::Utc::now().to_rfc3339(),
                         });
 
-                        // Store rvol/jump in the signal metadata for trade logging
+                        // Store rvol/jump/experiment_id in the signal metadata for trade logging
                         let bc = binance.clone();
                         let rvol = candidate.rvol;
                         let jump = candidate.jump_pct;
+                        let exp_id = current_experiment_id;
                         tokio::spawn(async move {
-                            if let Err(e) = bc.execute_market_order_with_metadata(&signal, rvol, jump).await {
+                            if let Err(e) = bc.execute_market_order_with_metadata(&signal, rvol, jump, exp_id).await {
                                 error!("❌ Scanner trade failed for {}: {}", signal.symbol, e);
                             }
                         });
