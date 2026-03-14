@@ -826,11 +826,10 @@ impl BinanceClient {
         let poll_interval = Duration::from_millis(50); // Polling cada 50ms para HFT
         let entry_time = Instant::now();
 
-        // 🛡️ Volatility Protection: Wait for market to stabilize
-        if self.exit_grace_period_secs > 0 {
-            info!("⏳ Grace Period: Waiting {}s before activating SL/Apex for {}...", self.exit_grace_period_secs, signal.symbol);
-            tokio::time::sleep(Duration::from_secs(self.exit_grace_period_secs)).await;
-        }
+        // 🛡️ Min Hold Time: Don't exit before 60s to avoid flash trades
+        let min_hold_secs = 60u64;
+        info!("⏳ Min Hold: {}s cooldown before exit logic activates for {}", min_hold_secs, signal.symbol);
+        tokio::time::sleep(Duration::from_secs(min_hold_secs)).await;
 
         let mut exit_reason = "Manual/Unknown";
         let mut exit_price = entry_price;
@@ -962,7 +961,20 @@ impl BinanceClient {
         };
 
         let close_result = if self.paper_mode {
-            info!("📝 [PAPER] Simulated close for {} @ ${:.5} (reason: {})", symbol_name, exit_price, exit_reason);
+            // Update paper balance with P/L
+            let lev = signal.leverage.unwrap_or(self.default_leverage) as f64;
+            let pnl_pct = match signal.side {
+                Side::Long => (exit_price - entry_price) / entry_price,
+                Side::Short => (entry_price - exit_price) / entry_price,
+            };
+            let position_size_pct = 0.20; // 20% of balance per position
+            {
+                let mut bal = self.balance.write().await;
+                let pnl_usd = *bal * position_size_pct * pnl_pct * lev;
+                *bal += pnl_usd;
+                info!("📝 [PAPER] Close {} @ ${:.6} ({}) | PnL: ${:.2} | Balance: ${:.2}",
+                    symbol_name, exit_price, exit_reason, pnl_usd, *bal);
+            }
             Ok(())
         } else {
             self.execute_market_order_with_retries(&close_signal, quantity_str.clone()).await

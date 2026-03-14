@@ -6,6 +6,7 @@ use log::{info, error, debug};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{Duration, Instant};
+use std::collections::HashMap;
 
 /// Atomic counter for generating unique signal IDs
 static SIGNAL_COUNTER: AtomicI32 = AtomicI32::new(1_000_000);
@@ -33,6 +34,10 @@ pub fn spawn_scanner(binance: Arc<BinanceClient>, runtime_config: SharedRuntimeC
 
         // Wait for price sync and balance to initialize
         tokio::time::sleep(Duration::from_secs(5)).await;
+
+        // Per-symbol cooldown: track recent trade timestamps (max 3 per symbol per hour)
+        let mut symbol_trade_times: HashMap<String, Vec<Instant>> = HashMap::new();
+        let max_trades_per_symbol_per_hour = 3usize;
 
         loop {
             // Read config fresh each cycle
@@ -97,6 +102,16 @@ pub fn spawn_scanner(binance: Arc<BinanceClient>, runtime_config: SharedRuntimeC
                             continue;
                         }
 
+                        // Per-symbol cooldown: max 3 trades per symbol per hour
+                        let now = Instant::now();
+                        let times = symbol_trade_times.entry(candidate.symbol.clone()).or_default();
+                        times.retain(|t| now.duration_since(*t) < Duration::from_secs(3600));
+                        if times.len() >= max_trades_per_symbol_per_hour {
+                            debug!("🧊 Cooldown: {} already has {} trades this hour. Skipping.",
+                                candidate.symbol, times.len());
+                            continue;
+                        }
+
                         let signal_id = SIGNAL_COUNTER.fetch_add(1, Ordering::SeqCst);
                         let signal = Signal {
                             msg_id: signal_id,
@@ -127,6 +142,9 @@ pub fn spawn_scanner(binance: Arc<BinanceClient>, runtime_config: SharedRuntimeC
                             }),
                             timestamp: chrono::Utc::now().to_rfc3339(),
                         });
+
+                        // Record trade time for cooldown
+                        symbol_trade_times.entry(candidate.symbol.clone()).or_default().push(Instant::now());
 
                         // Store rvol/jump/experiment_id in the signal metadata for trade logging
                         let bc = binance.clone();
